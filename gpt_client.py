@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+from openai import OpenAI
 from typing import Any
 
 import httpx
 
 from config.settings import Settings
+
+settings = Settings()
+client = OpenAI(api_key=settings.openai_api_key)
+
 
 SYSTEM_PROMPT = """
 Ты — AI‑ассистент внутри Telegram‑бота parsing_speakers_kant_v2.
@@ -78,13 +83,11 @@ def _build_chat_url(base_url: str) -> str:
     return f"{normalized}/v1/chat/completions"
 
 
-async def gpt_search_speakers(
-    *,
+async def get_speakers_from_gpt(
     season: str,
-    region: str,
-    sports: list[str],
-    settings: Settings,
-) -> dict[str, Any]:
+    location_scope: str,
+    user_query: str | None = None,
+) -> dict:
     """
     season: "зима" | "лето"
     region: строка, которую ты затем преобразуешь в location_scope
