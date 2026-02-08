@@ -83,13 +83,12 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             f"Спикеров для сезона «{result.get('season', season_config.name)}» "
             f"и региона «{result.get('region', region)}» пока нет в списке."
         )
-<<<<<<< HEAD
-=======
+
         await message.answer(
             "Ответ GPT (для отладки):\n"
             + json.dumps(result, ensure_ascii=False, indent=2)
         )
->>>>>>> d195037 (chore: debug GPT response formatting)
+
         return
 
     lines = [
@@ -114,16 +113,17 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             line += f"\n   • Профиль: {url}"
 
         lines.append(line)
+        
         lines.append("")  # пустая строка между спикерами
 
-<<<<<<< HEAD
+
     text = "\n".join(lines)
     await message.answer(text)
-=======
+
         text = "\n".join(lines)
         await message.answer(text)
         await message.answer(
         "Ответ GPT (JSON):\n" + json.dumps(result, ensure_ascii=False, indent=2)
         )
->>>>>>> d195037 (chore: debug GPT response formatting)
+
 
