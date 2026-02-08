@@ -68,12 +68,11 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
     await message.answer("Ищу спикеров, подождите...")
 
     try:
-        result = await gpt_search_speakers(
-            season=season_config.name,
-            region=region,
-            sports=season_config.sports,
-            settings=settings,
-        )
+       result = await get_speakers_from_gpt(
+    season=season,
+    location_scope=location_scope,
+    user_query=message.text,
+)
     except Exception:
         await message.answer("Ошибка при запросе к GPT. Попробуйте позже.")
         return
