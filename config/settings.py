@@ -22,7 +22,7 @@ def get_settings() -> Settings:
         bot_token=os.environ.get("BOT_TOKEN", ""),
         openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
         openai_base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        openai_model=os.environ.get("OPENAI_MODEL", "gpt-5.3-codex"),
+        openai_model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
         webhook_url=os.environ.get("WEBHOOK_URL", ""),
         port=int(os.environ.get("PORT", "8080")),
     )
