@@ -55,7 +55,6 @@ async def callback_hint_handler(query: CallbackQuery) -> None:
 
     await query.answer()
 
-
 @router.message(Command("find_speakers"))
 async def find_speakers_handler(message: Message, settings: Settings) -> None:
     try:
@@ -75,7 +74,7 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             season=season,
             location_scope=location_scope,
             user_query=message.text,
-            # если захочешь, можно добавить параметр sports в саму функцию
+            settings=settings,
         )
     except Exception:
         await message.answer("Ошибка при запросе к GPT. Попробуйте позже.")
