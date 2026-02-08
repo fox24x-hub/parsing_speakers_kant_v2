@@ -42,8 +42,8 @@ async def main():
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
     setup_application(app, dp, bot=bot)
 
-    dp.startup.register(lambda: on_startup(bot, dp, settings.webhook_url))
-    dp.shutdown.register(lambda: on_shutdown(bot))
+    # вместо dp.startup.register(...)
+    await on_startup(bot, dp, settings.webhook_url)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -52,10 +52,11 @@ async def main():
 
     logger.info("Bot started on port %s", settings.port)
 
-    # держим процесс живым
-    while True:
-        await asyncio.sleep(3600)
-
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        await on_shutdown(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
