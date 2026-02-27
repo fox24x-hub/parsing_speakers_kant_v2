@@ -7,106 +7,43 @@ import httpx
 
 from config.settings import Settings
 
-SYSTEM_PROMPT = """
-Ты — AI‑ассистент внутри Telegram‑бота parsing_speakers_kant_v2.
 
-ТВОЯ РОЛЬ
-- Помогать сети магазинов KANT подбирать спикеров для лекций и мероприятий по зимним и летним видам спорта.
-- Работать по принципу навыков (skills), описанных в проекте.
-
-ОСНОВНЫЕ КОМАНДЫ БОТА
-- Пользователь вызывает бота командами вида:
-  - /find_speakers <сезон> <регион> (например: «/find_speakers зима Екатеринбург»)
-- Сезон: «зима» или «лето».
-- Регион (location_scope): «Екатеринбург», «Свердловская область», «УрФО», «Россия».
-
-SKILL: find-speakers-core
-- Всегда возвращай строгий JSON с полями:
-  - season: "зима" или "лето"
-  - location_scope: один из вариантов ["Екатеринбург", "Свердловская область", "УрФО", "Россия"]
-  - speakers: массив объектов
-- Каждый объект speakers включает:
-  - name: имя и фамилия спикера
-  - sport: основной вид спорта или специализация
-  - expertise: 1–2 предложения о темах лекций, опыте и пользе для клиентов KANT
-  - city: город спикера
-  - url: ссылка на профиль/сайт/страницу мероприятия или пустая строка "" (если ссылки нет — не выдумывай)
-- Стремись вернуть 3–7 релевантных спикеров. Если их меньше, можно 2–3, но формат не нарушай.
-- Если спикеров нет, верни корректные season и location_scope, а speakers: [].
-
-SKILL: find-speakers-winter
-- Применяется, когда season = "зима" или запрос явно про зимний спорт.
-- Отдавай приоритет:
-  - беговым лыжам, горным лыжам, сноуборду, ски-туру, фрирайду, зимнему бегу, зимней подготовке.
-- В поле expertise подчёркивай пользу именно для зимних лекций KANT:
-  - подготовка к зимнему сезону, выбор экипировки, техника и безопасность на снегу.
-
-SKILL: find-speakers-summer
-- Применяется, когда season = "лето" или запрос явно про бег, трейл, триатлон и другие летние активности.
-- Отдавай приоритет:
-  - шоссейному бегу (5/10/21/42 км), трейлраннингу, триатлону, велосипеду, ОФП для бегунов.
-- В поле expertise показывай, для каких дистанций и форматов стартов спикер особенно полезен.
-
-SKILL: find-speakers-geo-urals
-- Если на исходном уровне мало спикеров, расширяй радиус поиска по шагам:
-  - «Екатеринбург» → «Свердловская область» → «УрФО» → «Россия».
-- Всегда записывай в поле location_scope тот уровень, на котором фактически нашлись спикеры.
-- В поле city обязательно указывай город спикера.
-- Не придумывай вымышленные города и регионы.
-
-SKILL: speakers-copy (используется ботом отдельно)
-- Ты формируешь ТОЛЬКО JSON. Бот сам превратит JSON в красивый текст.
-- НЕ добавляй в ответ текстовых пояснений, заголовков или форматирования — только JSON.
-
-SKILL: no-speakers-fallback
-- Если даже после расширения географии тебе нечего вернуть:
-  - верни пустой массив speakers: [].
-  - Всё равно укажи season и максимально разумный location_scope.
-- Не вставляй в JSON комментарии про ошибки или ограничения, только данные.
-
-ЖЁСТКОЕ ТРЕБОВАНИЕ
-- Ответ должен быть ТОЛЬКО валидным JSON‑объектом одного уровня верхней вложенности, без пояснений, markdown, комментариев и текста вокруг.
-- Не используй лишние поля, только:
-  - "season"
-  - "location_scope"
-  - "speakers" (массив объектов с полями "name", "sport", "expertise", "city", "url").
-  
-ИСТОЧНИКИ (ЭМУЛЯЦИЯ ПАРСИНГА)
-- Считай, что ты виртуально собираешь спикеров из:
-  - YouTube‑каналов про бег, лыжи и горные походы,
-  - VK и Telegram‑сообществ о любительском спорте,
-  - Яндекс.Дзена, Rutube,
-  - клуба путешественников «Спорт‑Марафон» и похожих спортивных медиа.
-- Разрешено придумывать правдоподобные имена и описания экспертов,
-  если это помогает выдать 3–7 спикеров.
-- НЕ указывай реальные персональные данные, которых ты «не видел»,
-  используй обобщённые, но реалистичные примеры.
-
-  ПРИМЕР ВАЛИДНОГО ОТВЕТА (ОБРАЗЕЦ):
-
-{
-  "season": "зима",
-  "location_scope": "Россия",
-  "speakers": [
-    {
-      "name": "Иван Петров",
-      "sport": "беговые лыжи",
-      "expertise": "Проводит лекции для любителей по подготовке к лыжному сезону и выбору экипировки.",
-      "city": "Екатеринбург",
-      "url": ""
-    },
-    {
-      "name": "Анна Смирнова",
-      "sport": "зимний бег",
-      "expertise": "Рассказывает о тренировках зимой, безопасности на снегу и подборе обуви.",
-      "city": "Москва",
-      "url": ""
-    }
-  ]
-}
+def build_prompt(
+    season: str, region: str, sports: list[str], sources: list[dict[str, Any]]
+) -> str:
+    sports_list = ", ".join(sports)
+    sources_json = json.dumps(sources, ensure_ascii=False, indent=2)
+    return (
+        "Ты парсер спикеров для KANT.ru. "
+        "Найди реальных спикеров лекций по видам спорта этого сезона в указанном регионе. "
+        "Используй ТОЛЬКО данные из источников ниже. Не придумывай. "
+        "Верни ТОЛЬКО валидный JSON без Markdown. "
+        "Формат JSON: {\n"
+        "  \"season\": str,\n"
+        "  \"region\": str,\n"
+        "  \"sports\": [str],\n"
+        "  \"speakers\": [\n"
+        "    {\n"
+        "      \"name\": str,\n"
+        "      \"sport\": str,\n"
+        "      \"location\": str,\n"
+        "      \"expertise\": str,\n"
+        "      \"url\": str | null,\n"
+        "      \"contact\": str | null,\n"
+        "      \"format\": str | null\n"
+        "    }\n"
+        "  ]\n"
+        "}. "
+        "Если спикеров нет - верни \"speakers\": []. "
+        "Если данные не подтверждены источниками, не включай их. "
+        "Контакт указывай только если он явно присутствует в источниках. "
+        "Формат (онлайн/офлайн/лекция/мастер-класс и т.п.) указывай только из источников. "
+        f"Сезон: {season}. Регион: {region}. Виды спорта: {sports_list}.\n"
+        f"Источники (JSON-массив объектов title/snippet/link/display_link/page_text/contacts/format_hints):\n"
+        f"{sources_json}"
+    )
 
 
-"""
 def _build_chat_url(base_url: str) -> str:
     normalized = base_url.rstrip("/")
     if normalized.endswith("/v1"):
@@ -114,46 +51,36 @@ def _build_chat_url(base_url: str) -> str:
     return f"{normalized}/v1/chat/completions"
 
 
-async def get_speakers_from_gpt(
+async def gpt_search_speakers(
     *,
     season: str,
-    location_scope: str,
-    user_query: str | None = None,
+    region: str,
+    sports: list[str],
+    sources: list[dict[str, Any]],
     settings: Settings,
 ) -> dict[str, Any]:
-    user_payload: dict[str, Any] = {
-        "season": season,
-        "location_scope": location_scope,
-    }
-    if user_query:
-        user_payload["user_query"] = user_query
-
+    prompt = build_prompt(season, region, sports, sources)
     payload = {
         "model": settings.openai_model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
             {
-                "role": "user",
-                "content": (
-                    "Сгенерируй список спикеров в формате JSON по этим данным: "
-                    + json.dumps(user_payload, ensure_ascii=False)
-                ),
+                "role": "system",
+                "content": "Ты точный JSON-генератор. Никогда не добавляй Markdown.",
             },
+            {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
+        "temperature": 0.1,
     }
-
     headers = {
         "Authorization": f"Bearer {settings.openai_api_key}",
         "Content-Type": "application/json",
     }
     url = _build_chat_url(settings.openai_base_url)
 
-    async with httpx.AsyncClient(timeout=30) as http_client:
-        response = await http_client.post(url, headers=headers, json=payload)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
 
     content = data["choices"][0]["message"]["content"]
     return json.loads(content)
-

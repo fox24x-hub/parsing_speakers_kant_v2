@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-
 from config.settings import Settings
-from gpt_client import get_speakers_from_gpt
+from gpt_client import gpt_search_speakers
 from keyboards import topics_keyboard
-from speaker_search import SearchRequestError, parse_find_speakers_args
+from search_client import SearchClientError, enrich_results, google_cse_search
+from speaker_search import (
+    REGION_QUERY_HINTS,
+    SearchRequestError,
+    parse_find_speakers_args,
+)
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 @router.message(Command("start"))
 async def start_handler(message: Message) -> None:
     await message.answer(
-        "Привет! Я бот KANT — помогу найти спикеров по сезонам и регионам. "
+        "Привет! Я бот KANT - помогу найти спикеров по сезонам и регионам. "
         "Используйте /topics или /find_speakers <сезон> <регион>."
     )
 
@@ -29,6 +35,12 @@ async def topics_handler(message: Message) -> None:
         "Выберите сезон и регион или используйте /find_speakers <сезон> <регион>.",
         reply_markup=topics_keyboard(),
     )
+
+
+@router.message(Command("ping"))
+async def ping_handler(message: Message) -> None:
+    logger.info("Ping from user_id=%s chat_id=%s", message.from_user.id, message.chat.id)
+    await message.answer("pong")
 
 
 @router.callback_query()
@@ -55,6 +67,7 @@ async def callback_hint_handler(query: CallbackQuery) -> None:
 
     await query.answer()
 
+
 @router.message(Command("find_speakers"))
 async def find_speakers_handler(message: Message, settings: Settings) -> None:
     try:
@@ -65,17 +78,41 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
 
     await message.answer("Ищу спикеров, подождите...")
 
-    season = season_config.name          # "зима" / "лето"
-    location_scope = region              # пока 1:1
-    sports = ["лыжи", "сноуборд"] if season == "зима" else ["бег", "трейл", "триатлон"]
-
     try:
-        result = await get_speakers_from_gpt(
-            season=season,
-            location_scope=location_scope,
-            user_query=message.text,
+        hints = REGION_QUERY_HINTS.get(region, [region])
+        sources = []
+        for hint in hints:
+            query = (
+                f"{season_config.name} {hint} "
+                f"{' '.join(season_config.sports)} "
+                "спикер лектор лекция интервью"
+            )
+            logger.info("Google CSE query: %s", query)
+            sources = await google_cse_search(query=query, settings=settings)
+            if sources:
+                break
+
+        if not sources:
+            await message.answer(
+                "Не нашёл источников по запросу. Попробуйте уточнить регион или сезон."
+            )
+            return
+
+        logger.info("Sources found: %s", len(sources))
+        for idx, source in enumerate(sources, start=1):
+            logger.info("Source %s: %s", idx, source.link)
+
+        enriched = await enrich_results(sources, max_pages=4)
+        result = await gpt_search_speakers(
+            season=season_config.name,
+            region=region,
+            sports=season_config.sports,
+            sources=enriched,
             settings=settings,
         )
+    except SearchClientError as exc:
+        await message.answer(str(exc))
+        return
     except Exception:
         await message.answer("Ошибка при запросе к GPT. Попробуйте позже.")
         return
@@ -83,8 +120,8 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
     speakers = result.get("speakers", [])
     if not speakers:
         await message.answer(
-            f"Спикеров для сезона «{result.get('season', season)}» "
-            f"и региона «{result.get('location_scope', location_scope)}» пока нет в списке."
+            f"Спикеров для сезона <{result.get('season', season_config.name)}> "
+            f"и региона <{result.get('region', region)}> пока нет в списке."
         )
         await message.answer(
             "Ответ GPT (JSON):\n" + json.dumps(result, ensure_ascii=False, indent=2)
@@ -92,33 +129,38 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         return
 
     lines = [
-        f"🎯 Спикеры для сезона «{result.get('season', season)}» "
-        f"в регионе «{result.get('location_scope', location_scope)}»:",
+        f"Спикеры для сезона <{result.get('season', season_config.name)}> "
+        f"в регионе <{result.get('region', region)}>:",
         "",
     ]
 
     for idx, sp in enumerate(speakers, start=1):
         name = sp.get("name", "Без имени")
         sport = sp.get("sport", "Спорт не указан")
-        city = sp.get("city", "Город не указан")
+        location = sp.get("location", "Локация не указана")
         expertise = sp.get("expertise", "Описание не указано")
         url = sp.get("url")
+        contact = sp.get("contact")
+        format_value = sp.get("format")
 
         line = (
             f"{idx}) {name}\n"
-            f"   • Вид спорта: {sport}\n"
-            f"   • Город: {city}\n"
-            f"   • Тема/экспертиза: {expertise}"
+            f"   Вид спорта: {sport}\n"
+            f"   Локация: {location}\n"
+            f"   Тема/экспертиза: {expertise}"
         )
         if url:
-            line += f"\n   • Профиль: {url}"
+            line += f"\n   Профиль: {url}"
+        if contact:
+            line += f"\n   Контакт: {contact}"
+        if format_value:
+            line += f"\n   Формат: {format_value}"
 
         lines.append(line)
         lines.append("")
 
     text = "\n".join(lines)
     await message.answer(text)
-
     await message.answer(
         "Ответ GPT (JSON):\n" + json.dumps(result, ensure_ascii=False, indent=2)
     )

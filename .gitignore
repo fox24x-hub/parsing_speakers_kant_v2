@@ -6,3 +6,5 @@ __pycache__/
 .venv/
 .envrc
 .DS_Store
+data/
+venv/

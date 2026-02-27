@@ -31,32 +31,55 @@ async def on_shutdown(bot: Bot):
     logger.info("Webhook deleted")
 
 
-async def main():
-    settings = get_settings()
-
-    bot = Bot(token=settings.bot_token)
-    dp = build_dispatcher(settings)
-
+async def run_webhook(bot: Bot, dp: Dispatcher, webhook_url: str, port: int) -> None:
     app = web.Application()
+
+    async def health_handler(_: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    app.router.add_get("/health", health_handler)
 
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
     setup_application(app, dp, bot=bot)
 
-    # вместо dp.startup.register(...)
-    await on_startup(bot, dp, settings.webhook_url)
+    await on_startup(bot, dp, webhook_url)
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host="0.0.0.0", port=settings.port)
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
     await site.start()
 
-    logger.info("Bot started on port %s", settings.port)
+    logger.info("Webhook server started on port %s", port)
 
     try:
         while True:
             await asyncio.sleep(3600)
     finally:
         await on_shutdown(bot)
+
+
+async def run_polling(bot: Bot, dp: Dispatcher) -> None:
+    logger.warning("Running in polling mode")
+    await dp.start_polling(bot)
+
+
+async def main():
+    settings = get_settings()
+
+    bot = Bot(token=settings.bot_token)
+    dp = build_dispatcher(settings)
+
+    logger.info("Starting bot. Webhook URL: %s", settings.webhook_url or "<empty>")
+
+    if not settings.webhook_url:
+        await run_polling(bot, dp)
+        return
+
+    try:
+        await run_webhook(bot, dp, settings.webhook_url, settings.port)
+    except Exception:
+        logger.exception("Webhook failed, falling back to polling")
+        await run_polling(bot, dp)
 
 if __name__ == "__main__":
     asyncio.run(main())
