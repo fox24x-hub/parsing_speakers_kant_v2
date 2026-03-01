@@ -46,7 +46,9 @@ def extract_format_hints(text: str) -> list[str]:
     return _dedupe(found)
 
 
-async def fetch_page_text(url: str, *, max_chars: int = 2000) -> str:
+async def fetch_page_text(
+    url: str, *, max_chars: int = 2000, timeout_seconds: float = 8.0
+) -> str:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -54,7 +56,7 @@ async def fetch_page_text(url: str, *, max_chars: int = 2000) -> str:
             "Chrome/120.0 Safari/537.36"
         )
     }
-    async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=timeout_seconds, headers=headers) as client:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
         html = response.text

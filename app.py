@@ -21,7 +21,7 @@ def build_dispatcher(settings):
 
 
 async def on_startup(bot: Bot, dp: Dispatcher, webhook_url: str):
-    await bot.set_webhook(webhook_url)
+    await bot.set_webhook(webhook_url, drop_pending_updates=True)
     logger.info("Webhook set to %s", webhook_url)
 
 

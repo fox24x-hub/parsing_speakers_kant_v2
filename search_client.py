@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -212,8 +213,7 @@ async def search_web(
 async def enrich_results(
     results: list[SearchResult], *, max_pages: int = 4
 ) -> list[dict[str, Any]]:
-    enriched: list[dict[str, Any]] = []
-    for result in results[:max_pages]:
+    async def _enrich_one(result: SearchResult) -> dict[str, Any]:
         page_text = ""
         contacts: list[str] = []
         format_hints: list[str] = []
@@ -226,17 +226,20 @@ async def enrich_results(
             contacts = []
             format_hints = []
 
-        enriched.append(
-            {
-                "title": result.title,
-                "snippet": result.snippet,
-                "link": result.link,
-                "display_link": result.display_link,
-                "page_text": page_text,
-                "contacts": contacts,
-                "format_hints": format_hints,
-            }
-        )
+        return {
+            "title": result.title,
+            "snippet": result.snippet,
+            "link": result.link,
+            "display_link": result.display_link,
+            "page_text": page_text,
+            "contacts": contacts,
+            "format_hints": format_hints,
+        }
+
+    enriched: list[dict[str, Any]] = []
+    tasks = [_enrich_one(result) for result in results[:max_pages]]
+    if tasks:
+        enriched.extend(await asyncio.gather(*tasks))
 
     for result in results[max_pages:]:
         enriched.append(

@@ -37,12 +37,6 @@ async def topics_handler(message: Message) -> None:
     )
 
 
-@router.message(Command("ping"))
-async def ping_handler(message: Message) -> None:
-    logger.info("Ping from user_id=%s chat_id=%s", message.from_user.id, message.chat.id)
-    await message.answer("pong")
-
-
 @router.callback_query()
 async def callback_hint_handler(query: CallbackQuery) -> None:
     if not query.data:
@@ -102,7 +96,7 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         for idx, source in enumerate(sources, start=1):
             logger.info("Source %s: %s", idx, source.link)
 
-        enriched = await enrich_results(sources, max_pages=4)
+        enriched = await enrich_results(sources, max_pages=2)
         result = await gpt_search_speakers(
             season=season_config.name,
             region=region,
