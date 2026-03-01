@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any
 
 import aiosqlite
@@ -92,6 +93,23 @@ def build_domain_query(query: str, domains: list[str]) -> str:
     return f"({site_filter}) {query}".strip()
 
 
+def _normalize_domain(value: str) -> str:
+    return value.lower().removeprefix("www.")
+
+
+def _is_allowed_domain(url: str, allowed_domains: list[str]) -> bool:
+    if not allowed_domains:
+        return True
+    host = _normalize_domain(urlparse(url).netloc)
+    if not host:
+        return False
+    for domain in allowed_domains:
+        normalized = _normalize_domain(domain)
+        if host == normalized or host.endswith(f".{normalized}"):
+            return True
+    return False
+
+
 async def google_cse_search(
     *,
     query: str,
@@ -160,7 +178,8 @@ async def serper_search(
 
     await _ensure_cache_db(settings.cache_db_path)
     ttl_seconds = settings.cache_ttl_days * 24 * 3600
-    cache_key = _cache_key(f"serper:{query}", num, "serper")
+    query_with_domains = build_domain_query(query, settings.allowed_domains)
+    cache_key = _cache_key(f"serper:{query_with_domains}", num, "serper")
 
     cached = await _get_cached(
         path=settings.cache_db_path, cache_key=cache_key, ttl_seconds=ttl_seconds
@@ -174,7 +193,7 @@ async def serper_search(
         "Content-Type": "application/json",
     }
     payload = {
-        "q": query,
+        "q": query_with_domains,
         "num": num,
     }
 
@@ -186,11 +205,14 @@ async def serper_search(
     items = data.get("organic", [])
     results: list[SearchResult] = []
     for item in items:
+        link = item.get("link", "")
+        if not _is_allowed_domain(link, settings.allowed_domains):
+            continue
         results.append(
             SearchResult(
                 title=item.get("title", ""),
                 snippet=item.get("snippet", ""),
-                link=item.get("link", ""),
+                link=link,
                 display_link=item.get("displayLink", item.get("displayedLink", "")),
             )
         )

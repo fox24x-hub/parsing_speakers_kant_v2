@@ -13,12 +13,21 @@ from keyboards import topics_keyboard
 from search_client import SearchClientError, enrich_results, search_web
 from speaker_search import (
     REGION_QUERY_HINTS,
+    REGION_TEXT_MARKERS,
     SearchRequestError,
     parse_find_speakers_args,
 )
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+def _matches_region(text: str, region: str) -> bool:
+    if region == "Россия":
+        return True
+    markers = REGION_TEXT_MARKERS.get(region, [])
+    haystack = text.lower()
+    return any(marker in haystack for marker in markers)
 
 
 @router.message(Command("start"))
@@ -97,6 +106,23 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             logger.info("Source %s: %s", idx, source.link)
 
         enriched = await enrich_results(sources, max_pages=2)
+        filtered_enriched = [
+            source
+            for source in enriched
+            if _matches_region(
+                f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}",
+                region,
+            )
+        ]
+        if region != "Россия":
+            logger.info(
+                "Region-filtered sources: %s -> %s",
+                len(enriched),
+                len(filtered_enriched),
+            )
+        if filtered_enriched:
+            enriched = filtered_enriched
+
         result = await gpt_search_speakers(
             season=season_config.name,
             region=region,
