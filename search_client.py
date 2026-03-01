@@ -147,6 +147,68 @@ async def google_cse_search(
     return results
 
 
+async def serper_search(
+    *, query: str, settings: Settings, max_results: int | None = None
+) -> list[SearchResult]:
+    if not settings.serper_api_key:
+        raise SearchClientError("Serper API не настроен.")
+
+    num = max_results or settings.search_max_results
+    if num < 1:
+        return []
+
+    await _ensure_cache_db(settings.cache_db_path)
+    ttl_seconds = settings.cache_ttl_days * 24 * 3600
+    cache_key = _cache_key(f"serper:{query}", num, "serper")
+
+    cached = await _get_cached(
+        path=settings.cache_db_path, cache_key=cache_key, ttl_seconds=ttl_seconds
+    )
+    if cached is not None:
+        return cached
+
+    url = "https://google.serper.dev/search"
+    headers = {
+        "X-API-KEY": settings.serper_api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "q": query,
+        "num": num,
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data: dict[str, Any] = response.json()
+
+    items = data.get("organic", [])
+    results: list[SearchResult] = []
+    for item in items:
+        results.append(
+            SearchResult(
+                title=item.get("title", ""),
+                snippet=item.get("snippet", ""),
+                link=item.get("link", ""),
+                display_link=item.get("displayLink", item.get("displayedLink", "")),
+            )
+        )
+
+    await _set_cached(path=settings.cache_db_path, cache_key=cache_key, results=results)
+    return results
+
+
+async def search_web(
+    *, query: str, settings: Settings, max_results: int | None = None
+) -> list[SearchResult]:
+    provider = settings.search_provider.strip().lower()
+    if provider == "serper":
+        return await serper_search(query=query, settings=settings, max_results=max_results)
+    if provider == "google":
+        return await google_cse_search(query=query, settings=settings, max_results=max_results)
+    raise SearchClientError("Неизвестный поисковый провайдер.")
+
+
 async def enrich_results(
     results: list[SearchResult], *, max_pages: int = 4
 ) -> list[dict[str, Any]]:

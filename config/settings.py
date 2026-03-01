@@ -16,6 +16,8 @@ class Settings:
     port: int
     google_cse_api_key: str
     google_cse_id: str
+    serper_api_key: str
+    search_provider: str
     search_max_results: int
     cache_db_path: str
     cache_ttl_days: int
@@ -33,6 +35,8 @@ def get_settings() -> Settings:
         port=int(os.environ.get("PORT", "8080")),
         google_cse_api_key=os.environ.get("GOOGLE_CSE_API_KEY", ""),
         google_cse_id=os.environ.get("GOOGLE_CSE_ID", ""),
+        serper_api_key=os.environ.get("SERPER_API_KEY", ""),
+        search_provider=os.environ.get("SEARCH_PROVIDER", "google"),
         search_max_results=int(os.environ.get("SEARCH_MAX_RESULTS", "8")),
         cache_db_path=os.environ.get("CACHE_DB_PATH", "data/search_cache.db"),
         cache_ttl_days=int(os.environ.get("CACHE_TTL_DAYS", "7")),

@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from config.settings import Settings
 from gpt_client import gpt_search_speakers
 from keyboards import topics_keyboard
-from search_client import SearchClientError, enrich_results, google_cse_search
+from search_client import SearchClientError, enrich_results, search_web
 from speaker_search import (
     REGION_QUERY_HINTS,
     SearchRequestError,
@@ -87,8 +87,8 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
                 f"{' '.join(season_config.sports)} "
                 "спикер лектор лекция интервью"
             )
-            logger.info("Google CSE query: %s", query)
-            sources = await google_cse_search(query=query, settings=settings)
+            logger.info("Search query: %s", query)
+            sources = await search_web(query=query, settings=settings)
             if sources:
                 break
 
