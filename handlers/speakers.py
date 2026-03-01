@@ -30,6 +30,37 @@ def _matches_region(text: str, region: str) -> bool:
     return any(marker in haystack for marker in markers)
 
 
+def _build_queries(season: str, region_hint: str, sports: list[str]) -> list[str]:
+    primary_sports = " ".join(sports[:2]) if sports else ""
+    all_sports = " ".join(sports)
+    queries = [
+        f"{season} {region_hint} {all_sports} спикер лектор лекция интервью",
+        f"{season} {region_hint} {primary_sports} спикер лекция",
+        f"{region_hint} {primary_sports} тренер эксперт выступление",
+        f"{region_hint} лекторий спорт лекция",
+    ]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        q = " ".join(query.split())
+        if q and q not in seen:
+            seen.add(q)
+            unique.append(q)
+    return unique
+
+
+def _merge_unique_sources(source_groups: list[list]) -> list:
+    merged = []
+    seen_links: set[str] = set()
+    for group in source_groups:
+        for source in group:
+            if source.link in seen_links:
+                continue
+            seen_links.add(source.link)
+            merged.append(source)
+    return merged
+
+
 @router.message(Command("start"))
 async def start_handler(message: Message) -> None:
     await message.answer(
@@ -85,13 +116,19 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         hints = REGION_QUERY_HINTS.get(region, [region])
         sources = []
         for hint in hints:
-            query = (
-                f"{season_config.name} {hint} "
-                f"{' '.join(season_config.sports)} "
-                "спикер лектор лекция интервью"
+            query_variants = _build_queries(
+                season=season_config.name,
+                region_hint=hint,
+                sports=season_config.sports,
             )
-            logger.info("Search query: %s", query)
-            sources = await search_web(query=query, settings=settings)
+            query_results = []
+            for query in query_variants:
+                logger.info("Search query: %s", query)
+                found = await search_web(query=query, settings=settings)
+                logger.info("Search results for query: %s", len(found))
+                if found:
+                    query_results.append(found)
+            sources = _merge_unique_sources(query_results)
             if sources:
                 break
 
