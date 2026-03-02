@@ -22,6 +22,8 @@ class Settings:
     cache_db_path: str
     cache_ttl_days: int
     allowed_domains: list[str]
+    blocked_domains: list[str]
+    blocked_patterns: list[str]
 
 
 def get_settings() -> Settings:
@@ -50,5 +52,19 @@ def get_settings() -> Settings:
                 ),
             ).split(",")
             if domain.strip()
+        ],
+        blocked_domains=[
+            domain.strip().lower()
+            for domain in os.environ.get(
+                "BLOCKED_DOMAINS", "ilovesupersport.ru"
+            ).split(",")
+            if domain.strip()
+        ],
+        blocked_patterns=[
+            pattern.strip().lower()
+            for pattern in os.environ.get(
+                "BLOCKED_PATTERNS", "vk.com/ilove,m.vk.com/ilove"
+            ).split(",")
+            if pattern.strip()
         ],
     )

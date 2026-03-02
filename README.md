@@ -44,6 +44,8 @@ python app.py
 - `CACHE_DB_PATH` (по умолчанию `data/search_cache.db`)
 - `CACHE_TTL_DAYS` (по умолчанию 7)
 - `ALLOWED_DOMAINS` (по умолчанию `t.me,vk.com,dzen.ru,rutube.ru,sports.ru,championat.com,sport-marafon.ru,ilovesupersport.ru,russiarunning.com`)
+- `BLOCKED_DOMAINS` (по умолчанию `ilovesupersport.ru`)
+- `BLOCKED_PATTERNS` (по умолчанию `vk.com/ilove,m.vk.com/ilove`)
 
 Бот также извлекает текст страниц (ограниченный объём) и пытается
 выделить контакты и формат выступления из источников.

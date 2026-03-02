@@ -88,10 +88,24 @@ def _domain_of(url: str) -> str:
     return urlparse(url).netloc.lower().removeprefix("www.")
 
 
-def _is_blacklisted_source_url(url: str) -> bool:
+def _is_blocked_domain(host: str, blocked_domains: list[str]) -> bool:
+    for blocked in blocked_domains:
+        blocked_host = blocked.lower().removeprefix("www.")
+        if host == blocked_host or host.endswith(f".{blocked_host}"):
+            return True
+    return False
+
+
+def _is_blacklisted_source_url(url: str, settings: Settings) -> bool:
     parsed = urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.")
     path = parsed.path.lower().rstrip("/") or "/"
     query = parsed.query.lower()
+    full_url = url.lower()
+    if _is_blocked_domain(host, settings.blocked_domains):
+        return True
+    if any(pattern in full_url for pattern in settings.blocked_patterns):
+        return True
     if path in BLACKLIST_PATHS:
         return True
     if any(token in query for token in BLACKLIST_QUERY_TOKENS):
@@ -201,7 +215,9 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             logger.info("Source %s: %s", idx, source.link)
 
         filtered_sources = [
-            source for source in sources if not _is_blacklisted_source_url(source.link)
+            source
+            for source in sources
+            if not _is_blacklisted_source_url(source.link, settings)
         ]
         logger.info(
             "Blacklist-filtered sources: %s -> %s",
