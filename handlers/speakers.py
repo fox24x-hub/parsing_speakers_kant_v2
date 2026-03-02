@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from urllib.parse import urlparse
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -61,6 +62,30 @@ def _merge_unique_sources(source_groups: list[list]) -> list:
             seen_links.add(source.link)
             merged.append(source)
     return merged
+
+
+def _domain_of(url: str) -> str:
+    return urlparse(url).netloc.lower().removeprefix("www.")
+
+
+def _select_diverse_sources(
+    sources: list,
+    *,
+    max_total: int = 12,
+    max_per_domain: int = 2,
+) -> list:
+    selected = []
+    per_domain: dict[str, int] = {}
+    for source in sources:
+        domain = _domain_of(source.link)
+        count = per_domain.get(domain, 0)
+        if count >= max_per_domain:
+            continue
+        selected.append(source)
+        per_domain[domain] = count + 1
+        if len(selected) >= max_total:
+            break
+    return selected
 
 
 @router.message(Command("start"))
@@ -143,6 +168,18 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         logger.info("Sources found: %s", len(sources))
         for idx, source in enumerate(sources, start=1):
             logger.info("Source %s: %s", idx, source.link)
+
+        diversified_sources = _select_diverse_sources(
+            sources,
+            max_total=12,
+            max_per_domain=2,
+        )
+        logger.info(
+            "Diversified sources: %s -> %s",
+            len(sources),
+            len(diversified_sources),
+        )
+        sources = diversified_sources
 
         candidate_sources = sources
         if region != "Россия":

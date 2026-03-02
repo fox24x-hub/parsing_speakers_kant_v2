@@ -263,16 +263,4 @@ async def enrich_results(
     if tasks:
         enriched.extend(await asyncio.gather(*tasks))
 
-    for result in results[max_pages:]:
-        enriched.append(
-            {
-                "title": result.title,
-                "snippet": result.snippet,
-                "link": result.link,
-                "display_link": result.display_link,
-                "page_text": "",
-                "contacts": [],
-                "format_hints": [],
-            }
-        )
     return enriched
