@@ -45,7 +45,7 @@ def get_settings() -> Settings:
             for domain in os.environ.get(
                 "ALLOWED_DOMAINS",
                 (
-                    "vk.com,dzen.ru,rutube.ru,sports.ru,championat.com,"
+                    "t.me,vk.com,dzen.ru,rutube.ru,sports.ru,championat.com,"
                     "sport-marafon.ru,ilovesupersport.ru,russiarunning.com"
                 ),
             ).split(",")

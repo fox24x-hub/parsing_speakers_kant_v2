@@ -21,6 +21,19 @@ from speaker_search import (
 
 router = Router()
 logger = logging.getLogger(__name__)
+BLACKLIST_PATHS = {"/", "/corporate", "/club", "/events"}
+BLACKLIST_QUERY_TOKENS = {"offset=", "own=", "page=", "per-page="}
+INTENT_MARKERS = {
+    "лекц",
+    "лектор",
+    "спикер",
+    "выступл",
+    "встреч",
+    "мастер-класс",
+    "вебинар",
+    "анонс",
+    "talk",
+}
 
 
 def _matches_region(text: str, region: str) -> bool:
@@ -29,6 +42,11 @@ def _matches_region(text: str, region: str) -> bool:
     markers = REGION_TEXT_MARKERS.get(region, [])
     haystack = text.lower()
     return any(marker in haystack for marker in markers)
+
+
+def _matches_intent(text: str) -> bool:
+    haystack = text.lower()
+    return any(marker in haystack for marker in INTENT_MARKERS)
 
 
 def _build_queries(season: str, region_hint: str, sports: list[str]) -> list[str]:
@@ -41,6 +59,8 @@ def _build_queries(season: str, region_hint: str, sports: list[str]) -> list[str
         f"{region_hint} лекторий спорт лекция",
         f"{region_hint} спортивный клуб школа бег лыжи лекция",
         f"{region_hint} федерация триатлон велоспорт спикер",
+        f"{region_hint} telegram канал анонс лекций {primary_sports}",
+        f"site:t.me {region_hint} {primary_sports} лекция спикер",
     ]
     unique: list[str] = []
     seen: set[str] = set()
@@ -66,6 +86,17 @@ def _merge_unique_sources(source_groups: list[list]) -> list:
 
 def _domain_of(url: str) -> str:
     return urlparse(url).netloc.lower().removeprefix("www.")
+
+
+def _is_blacklisted_source_url(url: str) -> bool:
+    parsed = urlparse(url)
+    path = parsed.path.lower().rstrip("/") or "/"
+    query = parsed.query.lower()
+    if path in BLACKLIST_PATHS:
+        return True
+    if any(token in query for token in BLACKLIST_QUERY_TOKENS):
+        return True
+    return False
 
 
 def _select_diverse_sources(
@@ -169,6 +200,26 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         for idx, source in enumerate(sources, start=1):
             logger.info("Source %s: %s", idx, source.link)
 
+        filtered_sources = [
+            source for source in sources if not _is_blacklisted_source_url(source.link)
+        ]
+        logger.info(
+            "Blacklist-filtered sources: %s -> %s",
+            len(sources),
+            len(filtered_sources),
+        )
+        if filtered_sources:
+            sources = filtered_sources
+
+        intent_sources = [
+            source
+            for source in sources
+            if _matches_intent(f"{source.title} {source.snippet}")
+        ]
+        logger.info("Intent-filtered sources: %s -> %s", len(sources), len(intent_sources))
+        if intent_sources:
+            sources = intent_sources
+
         diversified_sources = _select_diverse_sources(
             sources,
             max_total=12,
@@ -204,6 +255,9 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             if _matches_region(
                 f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}",
                 region,
+            )
+            and _matches_intent(
+                f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}"
             )
         ]
         if region != "Россия":
