@@ -144,7 +144,23 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         for idx, source in enumerate(sources, start=1):
             logger.info("Source %s: %s", idx, source.link)
 
-        enriched = await enrich_results(sources, max_pages=2)
+        candidate_sources = sources
+        if region != "Россия":
+            prefiltered_sources = [
+                source
+                for source in sources
+                if _matches_region(f"{source.title} {source.snippet}", region)
+            ]
+            logger.info(
+                "Region prefilter by title/snippet: %s -> %s",
+                len(sources),
+                len(prefiltered_sources),
+            )
+            if prefiltered_sources:
+                candidate_sources = prefiltered_sources
+
+        # Enrich only region-relevant candidates so GPT gets richer evidence.
+        enriched = await enrich_results(candidate_sources, max_pages=4)
         filtered_enriched = [
             source
             for source in enriched
@@ -155,7 +171,7 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         ]
         if region != "Россия":
             logger.info(
-                "Region-filtered sources: %s -> %s",
+                "Region strict filter after enrich: %s -> %s",
                 len(enriched),
                 len(filtered_enriched),
             )
