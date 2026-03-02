@@ -24,6 +24,7 @@ class Settings:
     allowed_domains: list[str]
     blocked_domains: list[str]
     blocked_patterns: list[str]
+    max_source_age_years: int
 
 
 def get_settings() -> Settings:
@@ -67,4 +68,5 @@ def get_settings() -> Settings:
             ).split(",")
             if pattern.strip()
         ],
+        max_source_age_years=int(os.environ.get("MAX_SOURCE_AGE_YEARS", "3")),
     )

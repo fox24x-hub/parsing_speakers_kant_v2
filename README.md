@@ -46,6 +46,7 @@ python app.py
 - `ALLOWED_DOMAINS` (по умолчанию `t.me,vk.com,dzen.ru,rutube.ru,sports.ru,championat.com,sport-marafon.ru,ilovesupersport.ru,russiarunning.com`)
 - `BLOCKED_DOMAINS` (по умолчанию `ilovesupersport.ru`)
 - `BLOCKED_PATTERNS` (по умолчанию `vk.com/ilove,m.vk.com/ilove`)
+- `MAX_SOURCE_AGE_YEARS` (по умолчанию `3`, фильтр по фразам вида `N лет назад`)
 
 Бот также извлекает текст страниц (ограниченный объём) и пытается
 выделить контакты и формат выступления из источников.

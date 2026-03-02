@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import datetime
 from urllib.parse import urlparse
 
 from aiogram import Router
@@ -34,6 +36,7 @@ INTENT_MARKERS = {
     "анонс",
     "talk",
 }
+YEARS_AGO_RE = re.compile(r"(\d{1,2})\s+лет?\s+назад")
 
 
 def _matches_region(text: str, region: str) -> bool:
@@ -49,12 +52,26 @@ def _matches_intent(text: str) -> bool:
     return any(marker in haystack for marker in INTENT_MARKERS)
 
 
+def _is_stale_source_text(text: str, max_age_years: int) -> bool:
+    haystack = text.lower()
+    match = YEARS_AGO_RE.search(haystack)
+    if not match:
+        return False
+    try:
+        years_ago = int(match.group(1))
+    except ValueError:
+        return False
+    return years_ago > max_age_years
+
+
 def _build_queries(season: str, region_hint: str, sports: list[str]) -> list[str]:
     primary_sports = " ".join(sports[:2]) if sports else ""
     all_sports = " ".join(sports)
+    current_year = datetime.utcnow().year
+    previous_year = current_year - 1
     queries = [
-        f"{season} {region_hint} {all_sports} спикер лектор лекция интервью",
-        f"{season} {region_hint} {primary_sports} спикер лекция",
+        f"{season} {region_hint} {all_sports} спикер лектор лекция интервью {current_year}",
+        f"{season} {region_hint} {primary_sports} спикер лекция {previous_year} {current_year}",
         f"{region_hint} {primary_sports} тренер эксперт выступление",
         f"{region_hint} лекторий спорт лекция",
         f"{region_hint} спортивный клуб школа бег лыжи лекция",
@@ -236,6 +253,18 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         if intent_sources:
             sources = intent_sources
 
+        fresh_sources = [
+            source
+            for source in sources
+            if not _is_stale_source_text(
+                f"{source.title} {source.snippet}",
+                settings.max_source_age_years,
+            )
+        ]
+        logger.info("Freshness-filtered sources: %s -> %s", len(sources), len(fresh_sources))
+        if fresh_sources:
+            sources = fresh_sources
+
         diversified_sources = _select_diverse_sources(
             sources,
             max_total=12,
@@ -284,6 +313,21 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             )
         if filtered_enriched:
             enriched = filtered_enriched
+        elif region in {"УрФО", "Россия"}:
+            relaxed_enriched = [
+                source
+                for source in enriched
+                if _matches_intent(
+                    f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}"
+                )
+            ]
+            if relaxed_enriched:
+                logger.info(
+                    "Fallback to relaxed intent-only filter: %s -> %s",
+                    len(enriched),
+                    len(relaxed_enriched),
+                )
+                enriched = relaxed_enriched
 
         result = await gpt_search_speakers(
             season=season_config.name,
