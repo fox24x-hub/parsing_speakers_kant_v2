@@ -38,6 +38,8 @@ def _build_queries(season: str, region_hint: str, sports: list[str]) -> list[str
         f"{season} {region_hint} {primary_sports} спикер лекция",
         f"{region_hint} {primary_sports} тренер эксперт выступление",
         f"{region_hint} лекторий спорт лекция",
+        f"{region_hint} спортивный клуб школа бег лыжи лекция",
+        f"{region_hint} федерация триатлон велоспорт спикер",
     ]
     unique: list[str] = []
     seen: set[str] = set()

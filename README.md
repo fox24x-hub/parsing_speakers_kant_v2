@@ -43,7 +43,7 @@ python app.py
 - `SEARCH_MAX_RESULTS` (по умолчанию 8)
 - `CACHE_DB_PATH` (по умолчанию `data/search_cache.db`)
 - `CACHE_TTL_DAYS` (по умолчанию 7)
-- `ALLOWED_DOMAINS` (по умолчанию `youtube.com,vk.com,sports.ru`)
+- `ALLOWED_DOMAINS` (по умолчанию `vk.com,dzen.ru,rutube.ru,sports.ru,championat.com,sport-marafon.ru,ilovesupersport.ru,russiarunning.com`)
 
 Бот также извлекает текст страниц (ограниченный объём) и пытается
 выделить контакты и формат выступления из источников.
