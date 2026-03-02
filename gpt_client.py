@@ -9,7 +9,12 @@ from config.settings import Settings
 
 
 def build_prompt(
-    season: str, region: str, sports: list[str], sources: list[dict[str, Any]]
+    season: str,
+    region: str,
+    sports: list[str],
+    sources: list[dict[str, Any]],
+    *,
+    strict_region: bool = True,
 ) -> str:
     sports_list = ", ".join(sports)
     sources_json = json.dumps(sources, ensure_ascii=False, indent=2)
@@ -36,7 +41,14 @@ def build_prompt(
         "}. "
         "Если спикеров нет - верни \"speakers\": []. "
         "Если данные не подтверждены источниками, не включай их. "
-        "Если регион спикера не подтвержден источником, не добавляй такого спикера. "
+        + (
+            "Если регион спикера не подтвержден источником, не добавляй такого спикера. "
+            if strict_region
+            else (
+                "Если регион явно не указан, разрешено использовать источник по тематике и региональному контексту, "
+                "но не выдумывай факты. "
+            )
+        )
         "Контакт указывай только если он явно присутствует в источниках. "
         "Формат (онлайн/офлайн/лекция/мастер-класс и т.п.) указывай только из источников. "
         f"Сезон: {season}. Регион: {region}. Виды спорта: {sports_list}.\n"
@@ -59,8 +71,15 @@ async def gpt_search_speakers(
     sports: list[str],
     sources: list[dict[str, Any]],
     settings: Settings,
+    strict_region: bool = True,
 ) -> dict[str, Any]:
-    prompt = build_prompt(season, region, sports, sources)
+    prompt = build_prompt(
+        season,
+        region,
+        sports,
+        sources,
+        strict_region=strict_region,
+    )
     payload = {
         "model": settings.openai_model,
         "messages": [

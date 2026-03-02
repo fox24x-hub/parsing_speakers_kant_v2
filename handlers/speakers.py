@@ -305,15 +305,14 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
                 f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}"
             )
         ]
-        if region != "Россия":
-            logger.info(
-                "Region strict filter after enrich: %s -> %s",
-                len(enriched),
-                len(filtered_enriched),
-            )
+        logger.info(
+            "Region strict filter after enrich: %s -> %s",
+            len(enriched),
+            len(filtered_enriched),
+        )
         if filtered_enriched:
             enriched = filtered_enriched
-        elif region in {"УрФО", "Россия"}:
+        else:
             relaxed_enriched = [
                 source
                 for source in enriched
@@ -328,6 +327,8 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
                     len(relaxed_enriched),
                 )
                 enriched = relaxed_enriched
+            else:
+                logger.info("Fallback to unfiltered enriched sources: %s", len(enriched))
 
         result = await gpt_search_speakers(
             season=season_config.name,
@@ -335,7 +336,18 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             sports=season_config.sports,
             sources=enriched,
             settings=settings,
+            strict_region=True,
         )
+        if not result.get("speakers") and enriched:
+            logger.info("Retrying GPT extraction with relaxed region mode")
+            result = await gpt_search_speakers(
+                season=season_config.name,
+                region=region,
+                sports=season_config.sports,
+                sources=enriched,
+                settings=settings,
+                strict_region=False,
+            )
     except SearchClientError as exc:
         await message.answer(str(exc))
         return
