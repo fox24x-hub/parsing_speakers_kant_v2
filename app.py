@@ -7,6 +7,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 
 from config.settings import get_settings
 from handlers import router
+from services.db import init_db
 
 
 logging.basicConfig(level=logging.INFO)
@@ -65,6 +66,7 @@ async def run_polling(bot: Bot, dp: Dispatcher) -> None:
 
 async def main():
     settings = get_settings()
+    await init_db(settings.speakers_db_path)
 
     bot = Bot(token=settings.bot_token)
     dp = build_dispatcher(settings)

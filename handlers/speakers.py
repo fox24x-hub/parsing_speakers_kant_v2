@@ -2,152 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-from datetime import datetime
-from urllib.parse import urlparse
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from config.settings import Settings
-from gpt_client import gpt_search_speakers
-from keyboards import topics_keyboard
-from search_client import SearchClientError, enrich_results, search_web
-from speaker_search import (
-    REGION_QUERY_HINTS,
-    REGION_TEXT_MARKERS,
-    SearchRequestError,
-    parse_find_speakers_args,
-)
+from keyboards import topics_keyboard, start_moderation_keyboard
+from search_client import SearchClientError
+from services.scan_service import run_scan
+from speaker_search import SearchRequestError, parse_find_speakers_args
 
 router = Router()
 logger = logging.getLogger(__name__)
-BLACKLIST_PATHS = {"/", "/corporate", "/club", "/events"}
-BLACKLIST_QUERY_TOKENS = {"offset=", "own=", "page=", "per-page="}
-INTENT_MARKERS = {
-    "лекц",
-    "лектор",
-    "спикер",
-    "выступл",
-    "встреч",
-    "мастер-класс",
-    "вебинар",
-    "анонс",
-    "talk",
-}
-YEARS_AGO_RE = re.compile(r"(\d{1,2})\s+лет?\s+назад")
-
-
-def _matches_region(text: str, region: str) -> bool:
-    if region == "Россия":
-        return True
-    markers = REGION_TEXT_MARKERS.get(region, [])
-    haystack = text.lower()
-    return any(marker in haystack for marker in markers)
-
-
-def _matches_intent(text: str) -> bool:
-    haystack = text.lower()
-    return any(marker in haystack for marker in INTENT_MARKERS)
-
-
-def _is_stale_source_text(text: str, max_age_years: int) -> bool:
-    haystack = text.lower()
-    match = YEARS_AGO_RE.search(haystack)
-    if not match:
-        return False
-    try:
-        years_ago = int(match.group(1))
-    except ValueError:
-        return False
-    return years_ago > max_age_years
-
-
-def _build_queries(season: str, region_hint: str, sports: list[str]) -> list[str]:
-    primary_sports = " ".join(sports[:2]) if sports else ""
-    all_sports = " ".join(sports)
-    current_year = datetime.utcnow().year
-    previous_year = current_year - 1
-    queries = [
-        f"{season} {region_hint} {all_sports} спикер лектор лекция интервью {current_year}",
-        f"{season} {region_hint} {primary_sports} спикер лекция {previous_year} {current_year}",
-        f"{region_hint} {primary_sports} тренер эксперт выступление",
-        f"{region_hint} лекторий спорт лекция",
-        f"{region_hint} спортивный клуб школа бег лыжи лекция",
-        f"{region_hint} федерация триатлон велоспорт спикер",
-        f"{region_hint} telegram канал анонс лекций {primary_sports}",
-        f"site:t.me {region_hint} {primary_sports} лекция спикер",
-    ]
-    unique: list[str] = []
-    seen: set[str] = set()
-    for query in queries:
-        q = " ".join(query.split())
-        if q and q not in seen:
-            seen.add(q)
-            unique.append(q)
-    return unique
-
-
-def _merge_unique_sources(source_groups: list[list]) -> list:
-    merged = []
-    seen_links: set[str] = set()
-    for group in source_groups:
-        for source in group:
-            if source.link in seen_links:
-                continue
-            seen_links.add(source.link)
-            merged.append(source)
-    return merged
-
-
-def _domain_of(url: str) -> str:
-    return urlparse(url).netloc.lower().removeprefix("www.")
-
-
-def _is_blocked_domain(host: str, blocked_domains: list[str]) -> bool:
-    for blocked in blocked_domains:
-        blocked_host = blocked.lower().removeprefix("www.")
-        if host == blocked_host or host.endswith(f".{blocked_host}"):
-            return True
-    return False
-
-
-def _is_blacklisted_source_url(url: str, settings: Settings) -> bool:
-    parsed = urlparse(url)
-    host = parsed.netloc.lower().removeprefix("www.")
-    path = parsed.path.lower().rstrip("/") or "/"
-    query = parsed.query.lower()
-    full_url = url.lower()
-    if _is_blocked_domain(host, settings.blocked_domains):
-        return True
-    if any(pattern in full_url for pattern in settings.blocked_patterns):
-        return True
-    if path in BLACKLIST_PATHS:
-        return True
-    if any(token in query for token in BLACKLIST_QUERY_TOKENS):
-        return True
-    return False
-
-
-def _select_diverse_sources(
-    sources: list,
-    *,
-    max_total: int = 12,
-    max_per_domain: int = 2,
-) -> list:
-    selected = []
-    per_domain: dict[str, int] = {}
-    for source in sources:
-        domain = _domain_of(source.link)
-        count = per_domain.get(domain, 0)
-        if count >= max_per_domain:
-            continue
-        selected.append(source)
-        per_domain[domain] = count + 1
-        if len(selected) >= max_total:
-            break
-    return selected
 
 
 @router.message(Command("start"))
@@ -202,157 +69,16 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
     await message.answer("Ищу спикеров, подождите...")
 
     try:
-        hints = REGION_QUERY_HINTS.get(region, [region])
-        sources = []
-        for hint in hints:
-            query_variants = _build_queries(
-                season=season_config.name,
-                region_hint=hint,
-                sports=season_config.sports,
-            )
-            query_results = []
-            for query in query_variants:
-                logger.info("Search query: %s", query)
-                found = await search_web(query=query, settings=settings)
-                logger.info("Search results for query: %s", len(found))
-                if found:
-                    query_results.append(found)
-            sources = _merge_unique_sources(query_results)
-            if sources:
-                break
-
-        if not sources:
-            await message.answer(
-                "Не нашёл источников по запросу. Попробуйте уточнить регион или сезон."
-            )
-            return
-
-        logger.info("Sources found: %s", len(sources))
-        for idx, source in enumerate(sources, start=1):
-            logger.info("Source %s: %s", idx, source.link)
-
-        filtered_sources = [
-            source
-            for source in sources
-            if not _is_blacklisted_source_url(source.link, settings)
-        ]
-        logger.info(
-            "Blacklist-filtered sources: %s -> %s",
-            len(sources),
-            len(filtered_sources),
+        result = await run_scan(
+            season_config, region, settings,
+            user_id=message.from_user.id if message.from_user else None,
         )
-        if filtered_sources:
-            sources = filtered_sources
-
-        intent_sources = [
-            source
-            for source in sources
-            if _matches_intent(f"{source.title} {source.snippet}")
-        ]
-        logger.info("Intent-filtered sources: %s -> %s", len(sources), len(intent_sources))
-        if intent_sources:
-            sources = intent_sources
-
-        fresh_sources = [
-            source
-            for source in sources
-            if not _is_stale_source_text(
-                f"{source.title} {source.snippet}",
-                settings.max_source_age_years,
-            )
-        ]
-        logger.info("Freshness-filtered sources: %s -> %s", len(sources), len(fresh_sources))
-        if fresh_sources:
-            sources = fresh_sources
-
-        diversified_sources = _select_diverse_sources(
-            sources,
-            max_total=12,
-            max_per_domain=2,
-        )
-        logger.info(
-            "Diversified sources: %s -> %s",
-            len(sources),
-            len(diversified_sources),
-        )
-        sources = diversified_sources
-
-        candidate_sources = sources
-        if region != "Россия":
-            prefiltered_sources = [
-                source
-                for source in sources
-                if _matches_region(f"{source.title} {source.snippet}", region)
-            ]
-            logger.info(
-                "Region prefilter by title/snippet: %s -> %s",
-                len(sources),
-                len(prefiltered_sources),
-            )
-            if prefiltered_sources:
-                candidate_sources = prefiltered_sources
-
-        # Enrich only region-relevant candidates so GPT gets richer evidence.
-        enriched = await enrich_results(candidate_sources, max_pages=4)
-        filtered_enriched = [
-            source
-            for source in enriched
-            if _matches_region(
-                f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}",
-                region,
-            )
-            and _matches_intent(
-                f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}"
-            )
-        ]
-        logger.info(
-            "Region strict filter after enrich: %s -> %s",
-            len(enriched),
-            len(filtered_enriched),
-        )
-        if filtered_enriched:
-            enriched = filtered_enriched
-        else:
-            relaxed_enriched = [
-                source
-                for source in enriched
-                if _matches_intent(
-                    f"{source.get('title', '')} {source.get('snippet', '')} {source.get('page_text', '')}"
-                )
-            ]
-            if relaxed_enriched:
-                logger.info(
-                    "Fallback to relaxed intent-only filter: %s -> %s",
-                    len(enriched),
-                    len(relaxed_enriched),
-                )
-                enriched = relaxed_enriched
-            else:
-                logger.info("Fallback to unfiltered enriched sources: %s", len(enriched))
-
-        result = await gpt_search_speakers(
-            season=season_config.name,
-            region=region,
-            sports=season_config.sports,
-            sources=enriched,
-            settings=settings,
-            strict_region=True,
-        )
-        if not result.get("speakers") and enriched:
-            logger.info("Retrying GPT extraction with relaxed region mode")
-            result = await gpt_search_speakers(
-                season=season_config.name,
-                region=region,
-                sports=season_config.sports,
-                sources=enriched,
-                settings=settings,
-                strict_region=False,
-            )
     except SearchClientError as exc:
         await message.answer(str(exc))
         return
     except Exception:
-        await message.answer("Ошибка при запросе к GPT. Попробуйте позже.")
+        logger.exception("scan failed")
+        await message.answer("Ошибка при поиске. Попробуйте позже.")
         return
 
     speakers = result.get("speakers", [])
@@ -362,7 +88,7 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
             f"и региона <{result.get('region', region)}> пока нет в списке."
         )
         await message.answer(
-            "Ответ GPT (JSON):\n" + json.dumps(result, ensure_ascii=False, indent=2)
+            "Ответ (JSON):\n" + json.dumps(result, ensure_ascii=False, indent=2)
         )
         return
 
@@ -371,34 +97,26 @@ async def find_speakers_handler(message: Message, settings: Settings) -> None:
         f"в регионе <{result.get('region', region)}>:",
         "",
     ]
-
     for idx, sp in enumerate(speakers, start=1):
-        name = sp.get("name", "Без имени")
-        sport = sp.get("sport", "Спорт не указан")
-        location = sp.get("location", "Локация не указана")
-        expertise = sp.get("expertise", "Описание не указано")
-        url = sp.get("url")
-        contact = sp.get("contact")
-        format_value = sp.get("format")
-
         line = (
-            f"{idx}) {name}\n"
-            f"   Вид спорта: {sport}\n"
-            f"   Локация: {location}\n"
-            f"   Тема/экспертиза: {expertise}"
+            f"{idx}) {sp.get('name', 'Без имени')}\n"
+            f"   Вид спорта: {sp.get('sport', 'Спорт не указан')}\n"
+            f"   Локация: {sp.get('location', 'Локация не указана')}\n"
+            f"   Тема/экспертиза: {sp.get('expertise', 'Описание не указано')}"
         )
-        if url:
-            line += f"\n   Профиль: {url}"
-        if contact:
-            line += f"\n   Контакт: {contact}"
-        if format_value:
-            line += f"\n   Формат: {format_value}"
-
+        if sp.get("url"):
+            line += f"\n   Профиль: {sp['url']}"
+        if sp.get("contact"):
+            line += f"\n   Контакт: {sp['contact']}"
+        if sp.get("format"):
+            line += f"\n   Формат: {sp['format']}"
         lines.append(line)
         lines.append("")
 
-    text = "\n".join(lines)
-    await message.answer(text)
-    await message.answer(
-        "Ответ GPT (JSON):\n" + json.dumps(result, ensure_ascii=False, indent=2)
-    )
+    run_id = result.get("run_id")
+    await message.answer("\n".join(lines))
+    if run_id:
+        await message.answer(
+            "Начните модерацию: одобряйте или отклоняйте кандидатов.",
+            reply_markup=start_moderation_keyboard(run_id),
+        )
